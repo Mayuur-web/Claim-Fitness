@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Trophy, Zap, Swords, Flame, Check, RotateCcw } from 'lucide-react';
+import { Trophy, Zap, Swords, Flame, Check, RotateCcw, Download } from 'lucide-react';
 import { formatTime, formatDistance, formatPace } from '@/lib/grid';
+import { generateGpx, downloadGpxFile } from '@/lib/gpx';
 
 export default function RunSummary({
   summary,
@@ -55,6 +56,16 @@ export default function RunSummary({
       cellSize,
     };
   }, [claimedCellIds]);
+
+  const [isExported, setIsExported] = useState(false);
+
+  const handleExportGpx = () => {
+    const gpx = generateGpx(summary.path || [], Date.now(), duration);
+    const filename = `claimr-run-${Math.round(distance)}m.gpx`;
+    downloadGpxFile(gpx, filename);
+    setIsExported(true);
+    setTimeout(() => setIsExported(false), 2000);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
@@ -159,19 +170,30 @@ export default function RunSummary({
 
         {/* Action Buttons */}
         <div className="flex flex-col gap-2.5 pt-1">
+          <div className="flex gap-2">
+            <button
+              onClick={handleExportGpx}
+              className="flex-1 h-12 rounded-btn bg-white/10 hover:bg-white/15 text-text font-semibold text-xs tracking-tight flex items-center justify-center gap-2 border border-white/10 active:scale-[0.98] transition-all"
+            >
+              <Download className="w-3.5 h-3.5 text-path" />
+              {isExported ? 'GPX Downloaded!' : 'Export GPX'}
+            </button>
+            <button
+              onClick={onNewRun}
+              className="px-4 h-12 rounded-btn bg-white/5 text-muted hover:text-text hover:bg-white/10 font-medium text-xs tracking-tight flex items-center justify-center gap-1.5 border border-white/10 active:scale-[0.98] transition-all"
+              title="Discard & Start Fresh"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Reset
+            </button>
+          </div>
+
           <button
             onClick={onSaveRun}
-            className="w-full h-14 rounded-btn bg-mine text-[#0B0F14] font-bold text-sm tracking-tight flex items-center justify-center gap-2 shadow-glowMine hover:brightness-105 active:scale-[0.98] transition-all"
+            className="w-full h-13 py-3.5 rounded-btn bg-mine text-[#0B0F14] font-bold text-sm tracking-tight flex items-center justify-center gap-2 shadow-glowMine hover:brightness-105 active:scale-[0.98] transition-all"
           >
             <Check className="w-4 h-4 stroke-[2.5]" />
-            Save run
-          </button>
-          <button
-            onClick={onNewRun}
-            className="w-full h-12 rounded-btn bg-white/5 text-text hover:bg-white/10 font-medium text-xs tracking-tight flex items-center justify-center gap-2 border border-white/10 active:scale-[0.98] transition-all"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            New run
+            Save to History
           </button>
         </div>
       </motion.div>

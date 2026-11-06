@@ -43,9 +43,9 @@ body {
   border: 1px solid var(--panel-border);
 }
 
-/* Darken OpenStreetMap tiles */
+/* Native Dark Matter tiles are clean & crisp without CSS filters */
 .leaflet-tile-pane {
-  filter: invert(1) hue-rotate(180deg) brightness(0.8) contrast(0.9) saturate(0.5);
+  background: var(--bg);
 }
 
 /* Hide default leaflet zoom and attribution styling cleanly */
@@ -101,10 +101,12 @@ body {
     transform: translate(-50%, -50%) scale(0.65);
     opacity: 0.9;
   }
+
   70% {
     transform: translate(-50%, -50%) scale(1.45);
     opacity: 0.15;
   }
+
   100% {
     transform: translate(-50%, -50%) scale(1.6);
     opacity: 0;
@@ -119,4 +121,3 @@ body {
     opacity: 0.3;
   }
 }
-

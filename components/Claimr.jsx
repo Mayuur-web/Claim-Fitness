@@ -12,6 +12,9 @@ import {
   Radio,
   Layers,
   ChevronDown,
+  Volume2,
+  VolumeX,
+  History as HistoryIcon,
 } from 'lucide-react';
 import {
   latLngToCellId,
@@ -20,10 +23,30 @@ import {
   haversineDistance,
   CELL_SIZE_METERS,
 } from '@/lib/grid';
+import {
+  playClaimSound,
+  playStealSound,
+  playLostSound,
+  playStartSound,
+  playFinishSound,
+  isAudioEnabled,
+  setAudioEnabled,
+} from '@/lib/audio';
+import {
+  loadSavedCells,
+  saveCells,
+  clearSavedCells,
+  loadRunHistory,
+  saveRunToHistory,
+  deleteRunFromHistory,
+  calculateCareerStats,
+} from '@/lib/storage';
+import { useWakeLock } from '@/lib/useWakeLock';
 import Sheet from './Sheet';
 import Toasts from './Toasts';
 import Leaderboard from './Leaderboard';
 import RunSummary from './RunSummary';
+import HistoryModal from './HistoryModal';
 
 // Dynamically import map layers to avoid SSR issues
 const MapLayers = dynamic(() => import('./MapLayers'), { ssr: false });
@@ -76,9 +99,15 @@ export default function Claimr() {
   // --- UI Overlays & Sheets ---
   const [toasts, setToasts] = useState([]);
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [runHistory, setRunHistory] = useState([]);
+  const [soundOn, setSoundOn] = useState(true);
   const [isDebugOpen, setIsDebugOpen] = useState(false);
   const [isLegendOpen, setIsLegendOpen] = useState(false);
   const [runSummaryData, setRunSummaryData] = useState(null);
+
+  // Keep screen awake while a run is active
+  useWakeLock(runState === 'running');
 
   // --- Toast helper with 2.5s auto-dismiss ---
   const addToast = useCallback((toast) => {
@@ -89,9 +118,10 @@ export default function Claimr() {
     }, 2500);
   }, []);
 
-  // Sync ref-backed Map to state for rendering
+  // Sync ref-backed Map to state for rendering & persist to storage
   const syncCellsState = useCallback(() => {
     setCellsArray(Array.from(cellsMapRef.current.values()));
+    saveCells(cellsMapRef.current);
   }, []);
 
   // Seed 8 rival clusters around a given coordinate
@@ -131,9 +161,19 @@ export default function Claimr() {
     [syncCellsState]
   );
 
-  // Initialize rivals near initial default location
+  // Initialize rivals or restore persisted cells and load history
   useEffect(() => {
-    seedRivals(DEFAULT_CENTER[0], DEFAULT_CENTER[1]);
+    setSoundOn(isAudioEnabled());
+    const history = loadRunHistory();
+    setRunHistory(history);
+
+    const saved = loadSavedCells();
+    if (saved && saved.size > 0) {
+      cellsMapRef.current = saved;
+      setCellsArray(Array.from(saved.values()));
+    } else {
+      seedRivals(DEFAULT_CENTER[0], DEFAULT_CENTER[1]);
+    }
   }, [seedRivals]);
 
   // --- SINGLE GPS & SIMULATION HANDLER ---
@@ -191,6 +231,7 @@ export default function Claimr() {
           if (!claimedCellsThisRunRef.current.has(currentCellId)) {
             claimedCellsThisRunRef.current.add(currentCellId);
             setRunCellCount(claimedCellsThisRunRef.current.size);
+            playClaimSound();
             addToast({ type: 'claimed', message: 'Cell claimed' });
           }
         } else if (existingCell.owner === 'rival') {
@@ -212,6 +253,7 @@ export default function Claimr() {
               claimedCellsThisRunRef.current.add(currentCellId);
               setRunCellCount(claimedCellsThisRunRef.current.size);
               setStolenCount((prev) => prev + 1);
+              playStealSound();
               addToast({ type: 'stolen', message: `Stolen from ${rivalName}` });
             }
           }
@@ -349,6 +391,7 @@ export default function Claimr() {
             shieldedUntil: now + 60000,
           });
           syncCellsState();
+          playLostSound();
           addToast({ type: 'lost', message: `${randomRival.name} took your cell` });
         }
       }
@@ -382,6 +425,8 @@ export default function Claimr() {
     justResumedRef.current = false;
     setIsFollowUser(true);
 
+    playStartSound();
+
     // Claim starting cell
     const startCellId = latLngToCellId(playerPos[0], playerPos[1]);
     const now = Date.now();
@@ -410,6 +455,7 @@ export default function Claimr() {
   };
 
   const handleFinishRun = () => {
+    playFinishSound();
     setRunState('finished');
     setRunSummaryData({
       duration,
@@ -417,13 +463,33 @@ export default function Claimr() {
       cellsClaimed: runCellCount,
       cellsStolen: stolenCount,
       claimedCellIds: Array.from(claimedCellsThisRunRef.current),
+      path: [...runPathRef.current],
     });
   };
 
   const handleSaveRun = () => {
-    addToast({ type: 'claimed', message: 'Activity recorded to memory' });
+    if (runSummaryData) {
+      const updatedHistory = saveRunToHistory(runSummaryData);
+      setRunHistory(updatedHistory);
+      saveCells(cellsMapRef.current);
+    }
+    addToast({ type: 'claimed', message: 'Activity recorded to history' });
     setRunSummaryData(null);
     setRunState('idle');
+  };
+
+  const handleDeleteRun = useCallback((runId) => {
+    const updated = deleteRunFromHistory(runId);
+    setRunHistory(updated);
+  }, []);
+
+  const handleToggleSound = () => {
+    const nextVal = !soundOn;
+    setSoundOn(nextVal);
+    setAudioEnabled(nextVal);
+    if (nextVal) {
+      playClaimSound();
+    }
   };
 
   const handleNewRun = () => {
@@ -468,6 +534,11 @@ export default function Claimr() {
       };
     });
   }, [cellsArray]);
+
+  // Career stats calculation
+  const careerStats = useMemo(() => {
+    return calculateCareerStats(runHistory, cellsMapRef.current);
+  }, [runHistory, cellsArray]);
 
   // Coordinate display format
   const coordDisplay = useMemo(() => {
@@ -530,25 +601,37 @@ export default function Claimr() {
         </div>
 
         {/* Right: Round Glass Action Buttons */}
-        <div className="flex items-center gap-2.5 pointer-events-auto">
-          {/* Debug Menu Toggle */}
+        <div className="flex items-center gap-2 pointer-events-auto">
+          {/* Sound Toggle */}
           <button
-            onClick={() => setIsDebugOpen(!isDebugOpen)}
-            className={`w-11 h-11 rounded-full glass-panel flex items-center justify-center text-muted hover:text-text active:scale-95 transition-all shadow-md ${isSimulating ? 'border-path text-path' : ''
-              }`}
-            title="Debug & Simulator"
-            aria-label="Debug menu"
+            onClick={handleToggleSound}
+            className={`w-11 h-11 rounded-full glass-panel flex items-center justify-center active:scale-95 transition-all shadow-md ${
+              soundOn ? 'text-mine border-mine/30' : 'text-muted/60'
+            }`}
+            title={soundOn ? 'Mute SFX' : 'Enable SFX'}
+            aria-label="Toggle Sound Effects"
           >
-            <Bug className="w-4 h-4" />
+            {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+          </button>
+
+          {/* Activity History */}
+          <button
+            onClick={() => setIsHistoryOpen(true)}
+            className="w-11 h-11 rounded-full glass-panel flex items-center justify-center text-muted hover:text-path active:scale-95 transition-all shadow-md"
+            title="Activity History"
+            aria-label="View Activity History"
+          >
+            <HistoryIcon className="w-4 h-4" />
           </button>
 
           {/* Center On Me */}
           <button
             onClick={handleCenterOnMe}
-            className={`w-11 h-11 rounded-full glass-panel flex items-center justify-center active:scale-95 transition-all shadow-md ${isFollowUser
-              ? 'text-path border-path/40'
-              : 'text-muted hover:text-text'
-              }`}
+            className={`w-11 h-11 rounded-full glass-panel flex items-center justify-center active:scale-95 transition-all shadow-md ${
+              isFollowUser
+                ? 'text-path border-path/40'
+                : 'text-muted hover:text-text'
+            }`}
             title="Center on me"
             aria-label="Center camera on player"
           >
@@ -563,6 +646,18 @@ export default function Claimr() {
             aria-label="View Leaderboard"
           >
             <Trophy className="w-5 h-5" />
+          </button>
+
+          {/* Debug Menu Toggle */}
+          <button
+            onClick={() => setIsDebugOpen(!isDebugOpen)}
+            className={`w-11 h-11 rounded-full glass-panel flex items-center justify-center text-muted hover:text-text active:scale-95 transition-all shadow-md ${
+              isSimulating ? 'border-path text-path' : ''
+            }`}
+            title="Debug & Simulator"
+            aria-label="Debug menu"
+          >
+            <Bug className="w-4 h-4" />
           </button>
         </div>
       </header>
@@ -620,6 +715,21 @@ export default function Claimr() {
             className="w-full py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-muted hover:text-text font-medium transition-colors"
           >
             Re-cluster rivals nearby
+          </button>
+
+          {/* Reset Saved Turf & History */}
+          <button
+            onClick={() => {
+              clearSavedCells();
+              cellsMapRef.current.clear();
+              seedRivals(playerPos[0], playerPos[1]);
+              setRunHistory([]);
+              localStorage.removeItem('claimr_history_v1');
+              addToast({ type: 'claimed', message: 'Storage cleared' });
+            }}
+            className="w-full py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-xs text-red-400 font-medium transition-colors"
+          >
+            Reset saved turf & history
           </button>
         </div>
       )}
@@ -681,6 +791,15 @@ export default function Claimr() {
         onClose={() => setIsLeaderboardOpen(false)}
         playerCellCount={playerTotalCells}
         rivals={rivalsLiveScores}
+      />
+
+      {/* ACTIVITY HISTORY MODAL */}
+      <HistoryModal
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        history={runHistory}
+        careerStats={careerStats}
+        onDeleteRun={handleDeleteRun}
       />
 
       {/* FINISH RUN SUMMARY */}
