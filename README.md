@@ -7,7 +7,7 @@ A mobile-first web app where players claim real-world territory by walking or ru
 - **Styling**: Tailwind CSS + Custom Dark Glass HUD design system
 - **Animation**: Framer Motion
 - **Icons**: Lucide React
-- **Map**: React-Leaflet v4 + CartoDB Dark Matter tiles (client-side only, dynamic import)
+- **Map**: React-Leaflet v4 + OpenStreetMap tiles with custom Dark HUD filter (100% free, no API key or sign-up needed)
 - **Typography**: Sora (UI & stats) + JetBrains Mono (coordinates)
 - **Audio & Haptics**: Native Web Audio API synth (zero external audio files) + Vibration API
 - **Persistence**: Ref-backed synchronized state + localStorage persistence for turf and activity history

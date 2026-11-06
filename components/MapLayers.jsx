@@ -28,6 +28,23 @@ function createPlayerIcon() {
   });
 }
 
+// Custom glowing collectible power-up drop icon
+function createCollectibleIcon(item) {
+  return L.divIcon({
+    className: 'collectible-drop-container',
+    html: `
+      <div style="position: relative; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;">
+        <div style="position: absolute; inset: 0; border-radius: 50%; background: ${item.color}35; border: 1.5px solid ${item.color}; animation: pulse-ring 1.8s infinite;"></div>
+        <div style="position: relative; width: 26px; height: 26px; border-radius: 50%; background: #0E141C; border: 1.5px solid ${item.color}; display: flex; align-items: center; justify-content: center; font-size: 13px; box-shadow: 0 0 12px ${item.color}99;">
+          ${item.badge}
+        </div>
+      </div>
+    `,
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
+  });
+}
+
 // Controller component to handle user panning, zoom events, and camera follow
 function MapController({
   playerPos,
@@ -90,6 +107,7 @@ export default function MapLayers({
   playerPos,
   path = [],
   cells = [],
+  collectibles = [],
   isFollowUser = true,
   onUserPan,
 }) {
@@ -116,9 +134,8 @@ export default function MapLayers({
         style={{ background: '#0B0F14' }}
       >
         <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          subdomains="abcd"
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener noreferrer">CARTO</a>'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors'
           maxZoom={19}
         />
 
@@ -166,6 +183,16 @@ export default function MapLayers({
             />
           );
         })}
+
+        {/* Collectible map drops / power-ups */}
+        {collectibles.map((item) => (
+          <Marker
+            key={item.id}
+            position={[item.lat, item.lng]}
+            icon={createCollectibleIcon(item)}
+            zIndexOffset={500}
+          />
+        ))}
 
         {/* Player run path: thick faint cyan under thin bright cyan */}
         {path.length > 1 && (

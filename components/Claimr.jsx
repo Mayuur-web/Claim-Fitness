@@ -29,9 +29,14 @@ import {
   playLostSound,
   playStartSound,
   playFinishSound,
+  playCollectSound,
   isAudioEnabled,
   setAudioEnabled,
 } from '@/lib/audio';
+import {
+  spawnCollectibles,
+  checkCollectiblesPickup,
+} from '@/lib/collectibles';
 import {
   loadSavedCells,
   saveCells,
@@ -106,9 +111,6 @@ export default function Claimr() {
   const [isLegendOpen, setIsLegendOpen] = useState(false);
   const [runSummaryData, setRunSummaryData] = useState(null);
 
-  // Keep screen awake while a run is active
-  useWakeLock(runState === 'running');
-
   // --- Toast helper with 2.5s auto-dismiss ---
   const addToast = useCallback((toast) => {
     const id = Date.now() + Math.random().toString();
@@ -117,6 +119,30 @@ export default function Claimr() {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 2500);
   }, []);
+
+  // --- Power-ups & Collectibles State ---
+  const [collectibles, setCollectibles] = useState([]);
+  const [activeBuff, setActiveBuff] = useState(null); // { type, name, badge, color, expiresAt }
+  const [buffRemainingSeconds, setBuffRemainingSeconds] = useState(0);
+
+  // Buff countdown ticker
+  useEffect(() => {
+    if (!activeBuff) return;
+
+    const interval = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((activeBuff.expiresAt - Date.now()) / 1000));
+      setBuffRemainingSeconds(remaining);
+      if (remaining <= 0) {
+        setActiveBuff(null);
+        addToast({ type: 'claimed', message: `${activeBuff.badge} ${activeBuff.name} Expired` });
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [activeBuff, addToast]);
+
+  // Keep screen awake while a run is active
+  useWakeLock(runState === 'running');
 
   // Sync ref-backed Map to state for rendering & persist to storage
   const syncCellsState = useCallback(() => {
@@ -156,6 +182,9 @@ export default function Claimr() {
         });
       });
 
+      // Spawn 3 collectible drops in surrounding neighborhood
+      setCollectibles(spawnCollectibles(centerLat, centerLng, 3));
+
       syncCellsState();
     },
     [syncCellsState]
@@ -188,8 +217,43 @@ export default function Claimr() {
         return;
       }
 
-      // If running, process distance and territory claiming
+      // If running, process distance, collectibles, and territory claiming
       if (runState === 'running') {
+        // Collectible power-up pickup detection
+        setCollectibles((currentDrops) => {
+          const { collected, remaining } = checkCollectiblesPickup(latitude, longitude, currentDrops, 35);
+          if (collected) {
+            playCollectSound();
+            if (collected.type === 'battery') {
+              // Instant burst: claim 4 adjacent cells immediately
+              const currentCid = latLngToCellId(latitude, longitude);
+              const neighbors = getNeighborCellIds(currentCid, false);
+              const nowTime = Date.now();
+              neighbors.forEach((nid) => {
+                cellsMapRef.current.set(nid, {
+                  id: nid,
+                  owner: 'player',
+                  claimedAt: nowTime,
+                  shieldedUntil: nowTime + 60000,
+                });
+                claimedCellsThisRunRef.current.add(nid);
+              });
+              setRunCellCount(claimedCellsThisRunRef.current.size);
+              syncCellsState();
+              addToast({ type: 'claimed', message: '🔋 Nano Battery! +4 cells burst claimed' });
+            } else {
+              setActiveBuff({
+                ...collected,
+                expiresAt: Date.now() + collected.duration * 1000,
+              });
+              setBuffRemainingSeconds(collected.duration);
+              addToast({ type: 'claimed', message: `${collected.badge} ${collected.name} Activated!` });
+            }
+            return remaining;
+          }
+          return currentDrops;
+        });
+
         // Distance calculation with Haversine formula
         if (justResumedRef.current) {
           lastPositionRef.current = newPos;
@@ -217,6 +281,7 @@ export default function Claimr() {
         const currentCellId = latLngToCellId(latitude, longitude);
         const existingCell = cellsMapRef.current.get(currentCellId);
         const now = Date.now();
+        const shieldDuration = activeBuff?.type === 'aegis' ? 300000 : 60000;
 
         if (!existingCell) {
           // Unowned cell -> Claim it immediately
@@ -224,8 +289,26 @@ export default function Claimr() {
             id: currentCellId,
             owner: 'player',
             claimedAt: now,
-            shieldedUntil: now + 60000, // 60s shield
+            shieldedUntil: now + shieldDuration,
           });
+
+          // If Hyper-Pulse Overdrive is active, also claim adjacent neighbors!
+          if (activeBuff?.type === 'overdrive') {
+            const neighbors = getNeighborCellIds(currentCellId, false);
+            neighbors.forEach((nid) => {
+              const ex = cellsMapRef.current.get(nid);
+              if (!ex || ex.owner !== 'player') {
+                cellsMapRef.current.set(nid, {
+                  id: nid,
+                  owner: 'player',
+                  claimedAt: now,
+                  shieldedUntil: now + 60000,
+                });
+                claimedCellsThisRunRef.current.add(nid);
+              }
+            });
+          }
+
           syncCellsState();
 
           if (!claimedCellsThisRunRef.current.has(currentCellId)) {
@@ -245,8 +328,25 @@ export default function Claimr() {
               id: currentCellId,
               owner: 'player',
               claimedAt: now,
-              shieldedUntil: now + 60000, // 60s shield
+              shieldedUntil: now + shieldDuration,
             });
+
+            if (activeBuff?.type === 'overdrive') {
+              const neighbors = getNeighborCellIds(currentCellId, false);
+              neighbors.forEach((nid) => {
+                const ex = cellsMapRef.current.get(nid);
+                if (!ex || (ex.owner === 'rival' && (!ex.shieldedUntil || ex.shieldedUntil <= now))) {
+                  cellsMapRef.current.set(nid, {
+                    id: nid,
+                    owner: 'player',
+                    claimedAt: now,
+                    shieldedUntil: now + 60000,
+                  });
+                  claimedCellsThisRunRef.current.add(nid);
+                }
+              });
+            }
+
             syncCellsState();
 
             if (!claimedCellsThisRunRef.current.has(currentCellId)) {
@@ -266,7 +366,7 @@ export default function Claimr() {
         }
       }
     },
-    [runState, syncCellsState, addToast]
+    [runState, syncCellsState, addToast, activeBuff]
   );
 
   // --- Real Geolocation Watcher (Stage 2) ---
@@ -557,6 +657,7 @@ export default function Claimr() {
           playerPos={playerPos}
           path={runPath}
           cells={cellsArray}
+          collectibles={collectibles}
           isFollowUser={isFollowUser}
           onUserPan={handleUserPan}
         />
@@ -574,27 +675,44 @@ export default function Claimr() {
             <span className="text-sm font-bold tracking-tight text-text">Claimr</span>
           </div>
 
-          {/* Status chip */}
-          <div className="flex items-center gap-2 px-3 py-1 rounded-full glass-panel bg-[rgba(14,20,28,0.72)] border border-[rgba(255,255,255,0.06)] text-xs">
-            {accuracy > 60 ? (
-              <div className="flex items-center gap-1.5 text-warn font-medium">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                <span>Low GPS signal</span>
-              </div>
-            ) : runState === 'running' ? (
-              <div className="flex items-center gap-1.5 text-text font-medium">
-                <span className="w-2 h-2 rounded-full bg-path animate-ping" />
-                <span className="text-path">Live</span>
-              </div>
-            ) : runState === 'paused' ? (
-              <div className="flex items-center gap-1.5 text-warn font-medium">
-                <span className="w-2 h-2 rounded-full bg-warn" />
-                <span>Paused</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5 text-muted font-medium">
-                <span className="w-2 h-2 rounded-full bg-mine" />
-                <span>Ready</span>
+          {/* Status chip & Active Buff Pill */}
+          <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2 px-3 py-1 rounded-full glass-panel bg-[rgba(14,20,28,0.72)] border border-[rgba(255,255,255,0.06)] text-xs">
+              {accuracy > 60 ? (
+                <div className="flex items-center gap-1.5 text-warn font-medium">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span>Low GPS signal</span>
+                </div>
+              ) : runState === 'running' ? (
+                <div className="flex items-center gap-1.5 text-text font-medium">
+                  <span className="w-2 h-2 rounded-full bg-path animate-ping" />
+                  <span className="text-path">Live</span>
+                </div>
+              ) : runState === 'paused' ? (
+                <div className="flex items-center gap-1.5 text-warn font-medium">
+                  <span className="w-2 h-2 rounded-full bg-warn" />
+                  <span>Paused</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 text-muted font-medium">
+                  <span className="w-2 h-2 rounded-full bg-mine" />
+                  <span>Ready</span>
+                </div>
+              )}
+            </div>
+
+            {/* Active Buff Timer Pill */}
+            {activeBuff && (
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full glass-panel border text-xs font-bold animate-pulse shadow-md"
+                style={{
+                  borderColor: `${activeBuff.color}88`,
+                  background: 'rgba(14,20,28,0.85)',
+                  color: activeBuff.color,
+                }}
+              >
+                <span>{activeBuff.badge}</span>
+                <span className="font-mono text-[11px]">{buffRemainingSeconds}s</span>
               </div>
             )}
           </div>

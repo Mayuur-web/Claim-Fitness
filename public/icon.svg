@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="128" fill="#0B0F14" />
+  <circle cx="256" cy="256" r="210" fill="none" stroke="#16202C" stroke-width="8" />
+  <circle cx="256" cy="256" r="180" fill="#3DE1FF" fill-opacity="0.08" stroke="#3DE1FF" stroke-opacity="0.3" stroke-width="4" stroke-dasharray="16 12" />
+  <!-- Neon Zap Emblem -->
+  <path d="M280 64L144 288h112l-32 160 160-224H272l48-160z" fill="#B6FF3B" stroke="#B6FF3B" stroke-width="12" stroke-linejoin="round" />
+</svg>
+

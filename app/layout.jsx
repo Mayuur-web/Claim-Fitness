@@ -16,6 +16,11 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata = {
   title: 'Claimr — Claim Your Ground',
   description: 'Mobile-first real-world territory turf-war game powered by walking and running.',
+  manifest: '/manifest.json',
+  icons: {
+    icon: '/icon.svg',
+    apple: '/icon.svg',
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',

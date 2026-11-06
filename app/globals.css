@@ -43,9 +43,9 @@ body {
   border: 1px solid var(--panel-border);
 }
 
-/* Native Dark Matter tiles are clean & crisp without CSS filters */
+/* Sleek dark mode styling for OpenStreetMap tiles (100% free, zero API key, no watermark) */
 .leaflet-tile-pane {
-  background: var(--bg);
+  filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(1.1) saturate(0.4);
 }
 
 /* Hide default leaflet zoom and attribution styling cleanly */

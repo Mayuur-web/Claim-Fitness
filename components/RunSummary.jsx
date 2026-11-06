@@ -2,9 +2,10 @@
 
 import React, { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Trophy, Zap, Swords, Flame, Check, RotateCcw, Download } from 'lucide-react';
+import { Trophy, Zap, Swords, Flame, Check, RotateCcw, Download, Share2 } from 'lucide-react';
 import { formatTime, formatDistance, formatPace } from '@/lib/grid';
 import { generateGpx, downloadGpxFile } from '@/lib/gpx';
+import { generateShareCard } from '@/lib/shareCard';
 
 export default function RunSummary({
   summary,
@@ -58,6 +59,7 @@ export default function RunSummary({
   }, [claimedCellIds]);
 
   const [isExported, setIsExported] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
 
   const handleExportGpx = () => {
     const gpx = generateGpx(summary.path || [], Date.now(), duration);
@@ -65,6 +67,15 @@ export default function RunSummary({
     downloadGpxFile(gpx, filename);
     setIsExported(true);
     setTimeout(() => setIsExported(false), 2000);
+  };
+
+  const handleShareStoryCard = async () => {
+    setIsSharing(true);
+    try {
+      await generateShareCard(summary);
+    } finally {
+      setIsSharing(false);
+    }
   };
 
   return (
@@ -173,18 +184,29 @@ export default function RunSummary({
           <div className="flex gap-2">
             <button
               onClick={handleExportGpx}
-              className="flex-1 h-12 rounded-btn bg-white/10 hover:bg-white/15 text-text font-semibold text-xs tracking-tight flex items-center justify-center gap-2 border border-white/10 active:scale-[0.98] transition-all"
+              className="flex-1 h-12 rounded-btn bg-white/10 hover:bg-white/15 text-text font-semibold text-xs tracking-tight flex items-center justify-center gap-1.5 border border-white/10 active:scale-[0.98] transition-all"
+              title="Download GPX file for Strava & Garmin"
             >
               <Download className="w-3.5 h-3.5 text-path" />
-              {isExported ? 'GPX Downloaded!' : 'Export GPX'}
+              <span>{isExported ? 'GPX Saved!' : 'GPX'}</span>
             </button>
+
+            <button
+              onClick={handleShareStoryCard}
+              disabled={isSharing}
+              className="flex-1 h-12 rounded-btn bg-white/10 hover:bg-white/15 text-text font-semibold text-xs tracking-tight flex items-center justify-center gap-1.5 border border-white/10 active:scale-[0.98] transition-all"
+              title="Generate Instagram Story summary image"
+            >
+              <Share2 className="w-3.5 h-3.5 text-mine" />
+              <span>{isSharing ? 'Rendering...' : 'Share Card'}</span>
+            </button>
+
             <button
               onClick={onNewRun}
-              className="px-4 h-12 rounded-btn bg-white/5 text-muted hover:text-text hover:bg-white/10 font-medium text-xs tracking-tight flex items-center justify-center gap-1.5 border border-white/10 active:scale-[0.98] transition-all"
+              className="px-3.5 h-12 rounded-btn bg-white/5 text-muted hover:text-text hover:bg-white/10 font-medium text-xs tracking-tight flex items-center justify-center gap-1.5 border border-white/10 active:scale-[0.98] transition-all"
               title="Discard & Start Fresh"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              Reset
             </button>
           </div>
 
