@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Pause, Square, ChevronUp, ChevronDown, Zap, Clock, Route } from 'lucide-react';
-import { formatTime, formatDistance } from '@/lib/grid';
+import { motion } from 'framer-motion';
+import { Play, Pause, Square, ChevronUp, ChevronDown, Zap, Clock, Route, Gauge } from 'lucide-react';
+import { formatTime, formatDistance, formatPace } from '@/lib/grid';
 
 export default function Sheet({
   runState = 'idle', // 'idle' | 'running' | 'paused' | 'finished'
@@ -142,20 +142,27 @@ export default function Sheet({
               </p>
             </div>
 
-            {/* Three primary stats cards with large tabular numbers */}
-            <div className="grid grid-cols-3 gap-3">
+            {/* Four primary stats cards with large tabular numbers */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/5 flex flex-col items-center text-center">
                 <span className="text-xs text-muted mb-0.5">Time</span>
-                <span className="text-xl sm:text-2xl font-bold tracking-tight text-text tabular-nums font-mono">
+                <span className="text-lg sm:text-xl font-bold tracking-tight text-text tabular-nums font-mono">
                   {formatTime(duration)}
                 </span>
               </div>
 
               <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/5 flex flex-col items-center text-center">
                 <span className="text-xs text-muted mb-0.5">Distance</span>
-                <span className="text-xl sm:text-2xl font-bold tracking-tight text-text tabular-nums">
+                <span className="text-lg sm:text-xl font-bold tracking-tight text-text tabular-nums">
                   {formatDistance(distance)}
-                  <span className="text-xs text-muted font-normal ml-0.5">km</span>
+                  <span className="text-[11px] text-muted font-normal ml-0.5">km</span>
+                </span>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/5 flex flex-col items-center text-center">
+                <span className="text-xs text-muted mb-0.5">Avg Pace</span>
+                <span className="text-lg sm:text-xl font-bold tracking-tight text-path tabular-nums font-mono">
+                  {formatPace(distance, duration)}
                 </span>
               </div>
 
@@ -163,10 +170,10 @@ export default function Sheet({
                 <span className="text-xs text-muted mb-0.5">Cells</span>
                 <motion.span
                   key={cellCount}
-                  initial={{ scale: 1.4, color: '#B6FF3B' }}
+                  initial={{ scale: 1.3, color: '#B6FF3B' }}
                   animate={{ scale: 1, color: '#B6FF3B' }}
-                  transition={{ duration: 0.3 }}
-                  className="text-xl sm:text-2xl font-bold tracking-tight text-mine tabular-nums"
+                  transition={{ duration: 0.25 }}
+                  className="text-lg sm:text-xl font-bold tracking-tight text-mine tabular-nums"
                 >
                   {cellCount}
                 </motion.span>

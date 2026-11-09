@@ -7,21 +7,19 @@ import {
   Trophy,
   Zap,
   Bug,
-  Compass,
   AlertTriangle,
-  Radio,
-  Layers,
   ChevronDown,
   Volume2,
   VolumeX,
   History as HistoryIcon,
+  Mic,
+  MicOff,
 } from 'lucide-react';
 import {
   latLngToCellId,
-  cellIdToCenter,
   getNeighborCellIds,
   haversineDistance,
-  CELL_SIZE_METERS,
+  formatPace,
 } from '@/lib/grid';
 import {
   playClaimSound,
@@ -40,12 +38,20 @@ import {
 import {
   loadSavedCells,
   saveCells,
+  saveCellsDebounced,
   clearSavedCells,
   loadRunHistory,
   saveRunToHistory,
   deleteRunFromHistory,
   calculateCareerStats,
 } from '@/lib/storage';
+import {
+  isVoiceEnabled,
+  setVoiceEnabled,
+  announceMilestone,
+  announceTurfLost,
+  announcePowerup,
+} from '@/lib/voiceCoach';
 import { useWakeLock } from '@/lib/useWakeLock';
 import Sheet from './Sheet';
 import Toasts from './Toasts';
@@ -107,9 +113,13 @@ export default function Claimr() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [runHistory, setRunHistory] = useState([]);
   const [soundOn, setSoundOn] = useState(true);
+  const [voiceOn, setVoiceOn] = useState(true);
   const [isDebugOpen, setIsDebugOpen] = useState(false);
   const [isLegendOpen, setIsLegendOpen] = useState(false);
   const [runSummaryData, setRunSummaryData] = useState(null);
+
+  // Audio voice milestone tracking
+  const lastAnnouncedDistanceKmRef = useRef(0);
 
   // --- Toast helper with 2.5s auto-dismiss ---
   const addToast = useCallback((toast) => {
@@ -144,10 +154,19 @@ export default function Claimr() {
   // Keep screen awake while a run is active
   useWakeLock(runState === 'running');
 
-  // Sync ref-backed Map to state for rendering & persist to storage
+  // Sync ref-backed Map to state for rendering & persist smoothly with debounce
   const syncCellsState = useCallback(() => {
     setCellsArray(Array.from(cellsMapRef.current.values()));
-    saveCells(cellsMapRef.current);
+    saveCellsDebounced(cellsMapRef.current);
+  }, []);
+
+  // Flush unsaved cells to storage before page unloads
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      saveCells(cellsMapRef.current);
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
   // Seed 8 rival clusters around a given coordinate
@@ -193,6 +212,7 @@ export default function Claimr() {
   // Initialize rivals or restore persisted cells and load history
   useEffect(() => {
     setSoundOn(isAudioEnabled());
+    setVoiceOn(isVoiceEnabled());
     const history = loadRunHistory();
     setRunHistory(history);
 
@@ -247,6 +267,7 @@ export default function Claimr() {
                 expiresAt: Date.now() + collected.duration * 1000,
               });
               setBuffRemainingSeconds(collected.duration);
+              announcePowerup(collected.name);
               addToast({ type: 'claimed', message: `${collected.badge} ${collected.name} Activated!` });
             }
             return remaining;
@@ -264,7 +285,15 @@ export default function Claimr() {
 
           // Discard jumps > 250m and ignore jitter < 2m
           if (distIncrement >= 2 && distIncrement <= 250) {
-            setDistance((d) => d + distIncrement);
+            setDistance((d) => {
+              const nextD = d + distIncrement;
+              const nextKm = Math.floor(nextD / 1000);
+              if (nextKm > lastAnnouncedDistanceKmRef.current && nextKm >= 1) {
+                lastAnnouncedDistanceKmRef.current = nextKm;
+                announceMilestone(nextD, formatPace(nextD, duration), claimedCellsThisRunRef.current.size);
+              }
+              return nextD;
+            });
             lastPositionRef.current = newPos;
 
             // Append to path
@@ -366,7 +395,7 @@ export default function Claimr() {
         }
       }
     },
-    [runState, syncCellsState, addToast, activeBuff]
+    [runState, syncCellsState, addToast, activeBuff, duration]
   );
 
   // --- Real Geolocation Watcher (Stage 2) ---
@@ -492,6 +521,7 @@ export default function Claimr() {
           });
           syncCellsState();
           playLostSound();
+          announceTurfLost(randomRival.name);
           addToast({ type: 'lost', message: `${randomRival.name} took your cell` });
         }
       }
@@ -518,6 +548,7 @@ export default function Claimr() {
     setDistance(0);
     setRunCellCount(0);
     setStolenCount(0);
+    lastAnnouncedDistanceKmRef.current = 0;
     claimedCellsThisRunRef.current = new Set();
     runPathRef.current = [playerPos];
     setRunPath([playerPos]);
@@ -590,6 +621,16 @@ export default function Claimr() {
     if (nextVal) {
       playClaimSound();
     }
+  };
+
+  const handleToggleVoice = () => {
+    const nextVal = !voiceOn;
+    setVoiceOn(nextVal);
+    setVoiceEnabled(nextVal);
+    addToast({
+      type: 'claimed',
+      message: nextVal ? 'Voice coach enabled' : 'Voice coach muted',
+    });
   };
 
   const handleNewRun = () => {
@@ -823,6 +864,26 @@ export default function Claimr() {
               <div
                 className={`w-5 h-5 rounded-full bg-bg transition-transform ${isSimulating ? 'translate-x-6' : 'translate-x-0'
                   }`}
+              />
+            </button>
+          </div>
+
+          {/* Voice Coach Toggle */}
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col">
+              <span className="text-xs font-medium text-text">Voice coach</span>
+              <span className="text-[10px] text-muted">Speech splits & alerts</span>
+            </div>
+            <button
+              onClick={handleToggleVoice}
+              className={`w-12 h-6 rounded-full transition-colors relative p-0.5 ${
+                voiceOn ? 'bg-path' : 'bg-white/15'
+              }`}
+            >
+              <div
+                className={`w-5 h-5 rounded-full bg-bg transition-transform ${
+                  voiceOn ? 'translate-x-6' : 'translate-x-0'
+                }`}
               />
             </button>
           </div>
